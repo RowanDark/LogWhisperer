@@ -1,0 +1,5 @@
+{
+  "name": "LogWhisperer",
+  "description": "A modern, AI-powered security log and threat analysis tool. Upload logs or text dumps to receive instant Tier 3 SOC Analyst insights using Gemini 2.5.",
+  "requestFramePermissions": []
+}
