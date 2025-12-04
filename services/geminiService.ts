@@ -50,6 +50,72 @@ const analysisSchema: Schema = {
   required: ["threatScore", "markdownReport", "timeline", "mitreMapping"],
 };
 
+// Robustly attempts to repair truncated JSON strings
+const repairTruncatedJSON = (jsonString: string): string => {
+  let repaired = jsonString.trim();
+
+  // 0. Initial Cleanup: Remove Markdown code block syntax if present
+  if (repaired.startsWith("```")) {
+    repaired = repaired.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+  }
+  repaired = repaired.trim();
+  
+  if (!repaired) return "{}";
+
+  // 1. Scan structure to track state
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < repaired.length; i++) {
+    const char = repaired[i];
+    
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+    } else {
+      if (char === '"') {
+        inString = true;
+      } else if (char === '{' || char === '[') {
+        stack.push(char);
+      } else if (char === '}' || char === ']') {
+        const last = stack[stack.length - 1];
+        if ((char === '}' && last === '{') || (char === ']' && last === '[')) {
+          stack.pop();
+        }
+      }
+    }
+  }
+
+  // 2. Close open string if cut off
+  if (inString) {
+    repaired += '"';
+  }
+
+  // 3. Handle trailing syntax errors caused by truncation
+  // Remove trailing comma (invalid in JSON)
+  repaired = repaired.replace(/,\s*$/, "");
+  
+  // Handle trailing colon (key without value): append null
+  if (/\:\s*$/.test(repaired)) {
+    repaired += " null";
+  }
+
+  // 4. Close remaining open structures (arrays/objects)
+  while (stack.length > 0) {
+    const last = stack.pop();
+    if (last === '{') repaired += '}';
+    if (last === '[') repaired += ']';
+  }
+
+  return repaired;
+};
+
 export const analyzeLogData = async (
   logData: string,
   model: GeminiModel,
@@ -61,17 +127,40 @@ export const analyzeLogData = async (
       contents: `Analyze the following security data snippet:\n\n${logData}`,
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.2, // Low temperature for more analytical/factual responses
+        temperature: 0.2, 
         responseMimeType: "application/json",
         responseSchema: analysisSchema,
+        maxOutputTokens: 8192,
       },
     });
 
-    if (response.text) {
-      return JSON.parse(response.text) as AnalysisResult;
+    let text = response.text || "";
+    
+    // First pass clean up
+    if (text.startsWith("```")) {
+      text = text.replace(/^```(json)?\n?/, "").replace(/\n?```$/, "");
+    }
+
+    try {
+      return JSON.parse(text) as AnalysisResult;
+    } catch (parseError) {
+      console.warn("JSON Parse failed, attempting repair. Raw text length:", text.length);
+      
+      try {
+        const repairedText = repairTruncatedJSON(text);
+        return JSON.parse(repairedText) as AnalysisResult;
+      } catch (repairError) {
+        console.error("Failed to repair JSON:", repairError);
+        // Return a partial error result instead of crashing
+        return {
+          threatScore: 0,
+          markdownReport: "### Analysis Error\n\nThe AI response was truncated and could not be fully recovered. Partial data may be missing. Please try reducing the input file size.",
+          timeline: [],
+          mitreMapping: []
+        };
+      }
     }
     
-    throw new Error("Empty response from AI");
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw new Error("Failed to analyze data. Please check your API key and network connection.");

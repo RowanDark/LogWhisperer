@@ -11,11 +11,14 @@ Your task is to analyze the provided security log data or packet summary and out
 
 1. **Threat Score**: Calculate a numeric score (0-100) based on the severity of threats found.
 2. **Timeline**: Extract a chronological timeline of significant events.
+   - LIMIT to the top 20 most critical events to ensure valid JSON output.
+   - Keep descriptions concise (under 15 words).
 3. **MITRE Mapping**: Map observed behaviors to specific MITRE ATT&CK Tactics and Techniques (e.g., T1190, T1078).
 4. **Markdown Report**: Write a human-readable report for the 'markdownReport' field. 
    - Use Markdown headers (##) for sections: "Executive Summary", "Detected Threats", "Technical Details", "Recommended Remediation".
    - In the "Detected Threats" section, bold the threat name and severity (e.g., **CRITICAL: SQL Injection**).
    - Keep the text professional, technical, and actionable.
+   - Be concise. Avoid fluff.
 
 Identify anomalies like Brute Force, SQLi, C2 beacons, XSS, or Buffer Overflows. If input is binary/PCAP, look for magic bytes or cleartext signatures.`;
 
